@@ -26,9 +26,13 @@ import java.util.concurrent.ExecutionException;
         configClazz = TbAzureFunctionsNodeConfiguration.class,
         clusteringMode = ComponentClusteringMode.SINGLETON,
         nodeDescription = "Pushes message data to the Azure Functions",
-        nodeDetails = "Will push message data to the Azure Functions</b>.",
+        nodeDetails = "Will invoke REST API call GET | POST | PUT | DELETE to Azure Functions. " +
+                "Message payload added into Request body. Query parameters can be added to the url. " +
+                "Configured attributes can be added into Headers from Message Metadata. " +
+                "Outbound message will contain response fields (status, statusCode, statusReason and response headers) in the Message Metadata. " +
+                "Response body saved in outbound Message payload. For example statusCode field can be accessed with metadata.statusCode.</b>.",
         uiResources = {""},
-        configDirective = "tbExternalNodeAzureIotHubConfig"//todo: change configDirective
+        configDirective = ""
 )
 public class TbAzureFunctionsNode extends TbAbstractExternalNode {
 
@@ -39,10 +43,6 @@ public class TbAzureFunctionsNode extends TbAbstractExternalNode {
     public void init(TbContext ctx, TbNodeConfiguration configuration) throws TbNodeException {
         super.init(ctx);
         config = TbNodeUtils.convert(configuration, TbAzureFunctionsNodeConfiguration.class);
-        if (CredentialsType.ACCESS_KEY == config.getCredentials().getType()
-                && !config.getRestEndpointUrlPattern().contains("?code=")) {
-            config.setRestEndpointUrlPattern(config.getRestEndpointUrlPattern() + "?code=" + ((AzureFunctionsCredentials) config.getCredentials()).getAccessKey());
-        }
         httpClient = new TbHttpClient(config, ctx.getSharedEventLoop());
     }
 
@@ -50,6 +50,7 @@ public class TbAzureFunctionsNode extends TbAbstractExternalNode {
     public void onMsg(TbContext ctx, TbMsg msg) throws ExecutionException, InterruptedException, TbNodeException {
         var tbMsg = ackIfNeeded(ctx, msg);
         tbMsg = TbMsg.transformMsgData(tbMsg, getRequestBody(tbMsg));
+        config.setRestEndpointUrlPattern(buildUrl(msg));
         httpClient.processMessage(ctx, tbMsg,
                 m -> tellSuccess(ctx, m),
                 (m, t) -> tellFailure(ctx, m, t));
@@ -62,20 +63,45 @@ public class TbAzureFunctionsNode extends TbAbstractExternalNode {
         }
     }
 
+    private String buildUrl(TbMsg msg) {
+        StringBuilder urlBuilder = new StringBuilder(config.getRestEndpointUrlPattern());
+        if (CredentialsType.ACCESS_KEY == config.getCredentials().getType()
+                && !config.getRestEndpointUrlPattern().contains("?code=")) {
+            urlBuilder.append("?code=").append(((AzureFunctionsCredentials) config.getCredentials()).getAccessKey());
+        }
+        Map<String, String> queryParams = processMappings(msg, config.getQueryParams());
+        queryParams.forEach((param, value) -> {
+            if (urlBuilder.toString().contains("?")) {
+                urlBuilder.append("&");
+            } else {
+                urlBuilder.append("?");
+            }
+            urlBuilder.append(param).append("=").append(value);
+        });
+        return urlBuilder.toString();
+    }
+
     private String getRequestBody(TbMsg msg) {
         ObjectNode requestBodyJson = JacksonUtil.newObjectNode();
-        Map<String, String> mappings = processInputKeys(msg);
-        mappings.forEach(requestBodyJson::put);
+        Map<String, String> inputKeys = processMappings(msg, config.getInputKeys());
+        inputKeys.forEach(requestBodyJson::put);
         return JacksonUtil.toString(requestBodyJson);
     }
 
-    private Map<String, String> processInputKeys(TbMsg msg) {
-        var mappings = new HashMap<String, String>();
-        this.config.getInputKeys().forEach((funcKey, funcValue) -> {
+    private Map<String, String> processMappings(TbMsg msg, Map<String, String> mappings) {
+        Map<String, String> processedMappings = new HashMap<>();
+        JsonNode msgData = JacksonUtil.toJsonNode(msg.getData());
+        mappings.forEach((funcKey, msgKey) -> {
             String patternProcessedFuncKey = TbNodeUtils.processPattern(funcKey, msg);
-            String patternProcessedMsgKey = TbNodeUtils.processPattern(funcValue, msg);
-            mappings.put(patternProcessedFuncKey, patternProcessedMsgKey);
+            String patternProcessedMsgValue;
+            try {
+                String patternProcessedMsgKey = TbNodeUtils.processPattern(msgKey, msg);
+                patternProcessedMsgValue = msgData.get(patternProcessedMsgKey).asText();
+            } catch (Exception e) {
+                patternProcessedMsgValue = msgKey;
+            }
+            processedMappings.put(patternProcessedFuncKey, patternProcessedMsgValue);
         });
-        return mappings;
+        return processedMappings;
     }
 }
