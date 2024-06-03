@@ -24,6 +24,7 @@ import org.thingsboard.rule.engine.api.TbNode;
 import org.thingsboard.rule.engine.api.TbNodeConfiguration;
 import org.thingsboard.rule.engine.api.TbNodeException;
 import org.thingsboard.rule.engine.api.util.TbNodeUtils;
+import org.thingsboard.server.common.data.AttributeScope;
 import org.thingsboard.server.common.data.DataConstants;
 import org.thingsboard.server.common.data.EntityType;
 import org.thingsboard.server.common.data.StringUtils;
@@ -82,14 +83,13 @@ public abstract class AbstractTbMsgPushNode<T extends BaseTbMsgPushNodeConfigura
             EdgeEventActionType actionType = getAlarmActionType(msg);
             return buildEvent(ctx.getTenantId(), actionType, getUUIDFromMsgData(msg), getAlarmEventType(), null);
         } else {
-            Map<String, String> metadata = msg.getMetaData().getData();
             EdgeEventActionType actionType = getEdgeEventActionTypeByMsgType(msg);
             Map<String, Object> entityBody = new HashMap<>();
             JsonNode dataJson = JacksonUtil.toJsonNode(msg.getData());
             switch (actionType) {
                 case ATTRIBUTES_UPDATED, POST_ATTRIBUTES -> {
                     entityBody.put("kv", dataJson);
-                    entityBody.put(SCOPE, getScope(metadata));
+                    entityBody.put(SCOPE, getScope(msg));
                     if (EdgeEventActionType.POST_ATTRIBUTES.equals(actionType)) {
                         entityBody.put("isPostAttributes", true);
                     }
@@ -98,7 +98,7 @@ public abstract class AbstractTbMsgPushNode<T extends BaseTbMsgPushNodeConfigura
                     List<String> keys = JacksonUtil.convertValue(dataJson.get("attributes"), new TypeReference<>() {
                     });
                     entityBody.put("keys", keys);
-                    entityBody.put(SCOPE, getScope(metadata));
+                    entityBody.put(SCOPE, getScope(msg));
                 }
                 case TIMESERIES_UPDATED -> {
                     entityBody.put("data", dataJson);
@@ -144,12 +144,27 @@ public abstract class AbstractTbMsgPushNode<T extends BaseTbMsgPushNodeConfigura
         return alarm != null ? alarm.getUuidId() : null;
     }
 
-    protected String getScope(Map<String, String> metadata) {
-        String scope = metadata.get(SCOPE);
-        if (StringUtils.isEmpty(scope)) {
-            scope = config.getScope();
+    protected AttributeScope getScope(TbMsg msg) {
+        if (config.isUseAttributesScopeTemplate()) {
+            try {
+                return AttributeScope.parseFrom(TbNodeUtils.processPattern(config.getScope(), msg));
+            } catch (Exception e) {
+                String mdScopeValue = msg.getMetaData().getValue("scope");
+                if (StringUtils.isEmpty(mdScopeValue)) {
+                    throw e;
+                }
+                try {
+                    return AttributeScope.parseFrom(mdScopeValue);
+                } catch (Exception ex) {
+                    throw e;
+                }
+            }
         }
-        return scope;
+        String mdScopeValue = msg.getMetaData().getValue(SCOPE);
+        if (StringUtils.isNotEmpty(mdScopeValue)) {
+            return AttributeScope.parseFrom(mdScopeValue);
+        }
+        return AttributeScope.parseFrom(config.getScope());
     }
 
     protected EdgeEventActionType getEdgeEventActionTypeByMsgType(TbMsg msg) {
