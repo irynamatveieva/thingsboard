@@ -32,4 +32,5 @@ public class BaseTbMsgPushNodeConfiguration implements NodeConfiguration<BaseTbM
         configuration.setUseAttributesScopeTemplate(false);
         return configuration;
     }
+
 }

@@ -30,4 +30,5 @@ public class TbMsgPushToEdgeNodeConfiguration extends BaseTbMsgPushNodeConfigura
         configuration.setUseAttributesScopeTemplate(false);
         return configuration;
     }
+
 }

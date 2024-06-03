@@ -16,8 +16,8 @@
 package org.thingsboard.rule.engine.edge;
 
 import com.google.common.util.concurrent.SettableFuture;
-import org.junit.Before;
 import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
@@ -81,7 +81,7 @@ public class TbMsgPushToEdgeNodeTest extends AbstractRuleNodeUpgradeTest {
     @Mock
     private ListeningExecutor dbCallbackExecutor;
 
-    @Before
+    @BeforeEach
     public void setUp() throws TbNodeException {
         node = new TbMsgPushToEdgeNode();
         TbMsgPushToEdgeNodeConfiguration config = new TbMsgPushToEdgeNodeConfiguration().defaultConfiguration();
